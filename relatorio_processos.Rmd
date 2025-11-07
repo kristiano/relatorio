@@ -1,0 +1,436 @@
+---
+title: "Relatório de Acompanhamento de Processos"
+subtitle: "Instituto Federal do Maranhão - IFMA"
+author: "Coordenação de Licitações e Contratos - CLC/PROAD"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: 
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    df_print: paged
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  warning = FALSE, 
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6
+)
+
+# Carregar bibliotecas necessárias
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(lubridate)
+library(tidyr)
+library(scales)
+```
+
+```{r carregar_dados}
+# Carregar a planilha de processos
+df <- read_excel("/Users/skyneton/Downloads/codigo suap/Processos-SUAP.xlsx")
+
+# Renomear colunas para facilitar manipulação
+df <- df %>%
+  rename(
+    numero_processo = `Número do processo`,
+    objeto = OBJETO,
+    tipo_processo = `Tipo de processo`,
+    setor = SETOR,
+    data_cadastro = `Data do cadastro`,
+    ultima_movimentacao = `Última movimentação`,
+    status = STATUS,
+    responsavel = Responsável
+  )
+
+# Calcular tempo de tramitação em dias
+df <- df %>%
+  mutate(
+    tempo_tramitacao = as.numeric(difftime(ultima_movimentacao, data_cadastro, units = "days")),
+    mes_cadastro = format(data_cadastro, "%Y-%m"),
+    ano_cadastro = year(data_cadastro),
+    # Substituir NA em status por "Sem informação"
+    status = ifelse(is.na(status), "Sem informação de status", status)
+  )
+```
+
+# Sumário Executivo
+
+Este relatório apresenta uma análise consolidada dos **`r nrow(df)` processos** atualmente sob acompanhamento da Coordenação de Licitações e Contratos (CLC/PROAD), com dados atualizados até **`r format(Sys.Date(), '%d/%m/%Y')`**.
+
+## Indicadores Principais
+
+```{r indicadores_principais}
+# Calcular indicadores
+total_processos <- nrow(df)
+processos_ativos <- sum(!grepl("Concluído|Finalizado|Encerrado", df$status, ignore.case = TRUE), na.rm = TRUE)
+tempo_medio <- round(mean(df$tempo_tramitacao, na.rm = TRUE), 0)
+processos_criticos <- sum(df$tempo_tramitacao > 180, na.rm = TRUE)
+
+# Criar tabela de indicadores
+indicadores <- data.frame(
+  Indicador = c(
+    "Total de Processos",
+    "Processos em Andamento",
+    "Tempo Médio de Tramitação",
+    "Processos Críticos (>180 dias)"
+  ),
+  Valor = c(
+    total_processos,
+    processos_ativos,
+    paste(tempo_medio, "dias"),
+    processos_criticos
+  )
+)
+
+kable(indicadores, 
+      col.names = c("Indicador", "Valor"),
+      align = c("l", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE,
+                position = "center") %>%
+  row_spec(0, bold = TRUE, background = "#3498db", color = "white") %>%
+  column_spec(1, bold = TRUE, width = "20em") %>%
+  column_spec(2, width = "10em", background = "#ecf0f1")
+```
+
+---
+
+# Análise por Status
+
+```{r analise_status}
+# Análise de distribuição por status
+status_summary <- df %>%
+  group_by(status) %>%
+  summarise(
+    Quantidade = n(),
+    `%` = round(n() / nrow(df) * 100, 1)
+  ) %>%
+  arrange(desc(Quantidade))
+
+kable(status_summary,
+      col.names = c("Status", "Quantidade", "%"),
+      align = c("l", "c", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#2ecc71", color = "white")
+```
+
+## Visualização da Distribuição por Status
+
+```{r grafico_status, fig.height=7}
+# Gráfico de barras horizontal
+ggplot(status_summary, aes(x = reorder(status, Quantidade), y = Quantidade, fill = status)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = Quantidade), hjust = -0.3, size = 4, fontface = "bold") +
+  coord_flip() +
+  scale_fill_brewer(palette = "Set3") +
+  labs(
+    title = "Distribuição de Processos por Status",
+    x = "Status",
+    y = "Quantidade de Processos"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12, face = "bold"),
+    panel.grid.major.y = element_blank()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+---
+
+# Análise por Tipo de Processo
+
+```{r analise_tipo_processo}
+# Análise por tipo de processo
+tipo_summary <- df %>%
+  group_by(tipo_processo) %>%
+  summarise(
+    Quantidade = n(),
+    `%` = round(n() / nrow(df) * 100, 1),
+    `Tempo Médio (dias)` = round(mean(tempo_tramitacao, na.rm = TRUE), 0)
+  ) %>%
+  arrange(desc(Quantidade))
+
+kable(tipo_summary,
+      col.names = c("Tipo de Processo", "Quantidade", "%", "Tempo Médio (dias)"),
+      align = c("l", "c", "c", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#e74c3c", color = "white")
+```
+
+```{r grafico_tipo_processo}
+# Gráfico de pizza
+ggplot(tipo_summary, aes(x = "", y = Quantidade, fill = tipo_processo)) +
+  geom_bar(stat = "identity", width = 1, color = "white", size = 1.5) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(Quantidade, "\n(", `%`, "%)")), 
+            position = position_stack(vjust = 0.5),
+            size = 4.5, fontface = "bold", color = "white") +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "Distribuição por Tipo de Processo",
+    fill = "Tipo"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5, margin = margin(b = 20)),
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10)
+  )
+```
+
+---
+
+# Análise Temporal
+
+## Processos Cadastrados por Mês
+
+```{r analise_temporal}
+# Análise temporal
+temporal_summary <- df %>%
+  group_by(mes_cadastro) %>%
+  summarise(
+    Quantidade = n()
+  ) %>%
+  arrange(mes_cadastro)
+
+kable(temporal_summary,
+      col.names = c("Mês", "Quantidade de Processos"),
+      align = c("c", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#9b59b6", color = "white")
+```
+
+```{r grafico_temporal}
+# Gráfico de linha
+ggplot(temporal_summary, aes(x = mes_cadastro, y = Quantidade, group = 1)) +
+  geom_line(color = "#3498db", size = 1.2) +
+  geom_point(color = "#2c3e50", size = 3) +
+  geom_text(aes(label = Quantidade), vjust = -1, size = 4, fontface = "bold") +
+  labs(
+    title = "Evolução de Cadastro de Processos ao Longo do Tempo",
+    x = "Mês/Ano",
+    y = "Quantidade de Processos"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 11),
+    axis.title = element_text(size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+```
+
+---
+
+# Análise por Setor Demandante
+
+```{r analise_setor}
+# Análise por setor
+setor_summary <- df %>%
+  group_by(setor) %>%
+  summarise(
+    Quantidade = n(),
+    `%` = round(n() / nrow(df) * 100, 1),
+    `Tempo Médio (dias)` = round(mean(tempo_tramitacao, na.rm = TRUE), 0)
+  ) %>%
+  arrange(desc(Quantidade))
+
+kable(setor_summary,
+      col.names = c("Setor", "Quantidade", "%", "Tempo Médio (dias)"),
+      align = c("l", "c", "c", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#f39c12", color = "white")
+```
+
+```{r grafico_setor, fig.height=8}
+# Gráfico de barras para setores
+ggplot(setor_summary, aes(x = reorder(setor, Quantidade), y = Quantidade, fill = setor)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = Quantidade), hjust = -0.3, size = 4, fontface = "bold") +
+  coord_flip() +
+  scale_fill_viridis_d(option = "plasma") +
+  labs(
+    title = "Quantidade de Processos por Setor Demandante",
+    x = "Setor",
+    y = "Quantidade de Processos"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    panel.grid.major.y = element_blank()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+```
+
+---
+
+# Análise de Tempo de Tramitação
+
+```{r analise_tempo}
+# Estatísticas de tempo de tramitação
+tempo_stats <- df %>%
+  summarise(
+    `Tempo Mínimo` = min(tempo_tramitacao, na.rm = TRUE),
+    `Tempo Máximo` = max(tempo_tramitacao, na.rm = TRUE),
+    `Tempo Médio` = round(mean(tempo_tramitacao, na.rm = TRUE), 0),
+    `Tempo Mediano` = round(median(tempo_tramitacao, na.rm = TRUE), 0)
+  ) %>%
+  pivot_longer(everything(), names_to = "Estatística", values_to = "Dias")
+
+kable(tempo_stats,
+      col.names = c("Estatística", "Dias"),
+      align = c("l", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#16a085", color = "white")
+```
+
+## Distribuição do Tempo de Tramitação
+
+```{r grafico_tempo_distribuicao}
+# Histograma
+ggplot(df, aes(x = tempo_tramitacao)) +
+  geom_histogram(binwidth = 30, fill = "#3498db", color = "white", alpha = 0.8) +
+  geom_vline(aes(xintercept = mean(tempo_tramitacao, na.rm = TRUE)), 
+             color = "red", linetype = "dashed", size = 1) +
+  annotate("text", 
+           x = mean(df$tempo_tramitacao, na.rm = TRUE) + 50, 
+           y = Inf, 
+           label = paste("Média:", round(mean(df$tempo_tramitacao, na.rm = TRUE), 0), "dias"),
+           vjust = 2, color = "red", fontface = "bold", size = 4) +
+  labs(
+    title = "Distribuição do Tempo de Tramitação dos Processos",
+    x = "Tempo de Tramitação (dias)",
+    y = "Quantidade de Processos"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12, face = "bold")
+  )
+```
+
+---
+
+# Processos Críticos (Tempo de Tramitação > 180 dias)
+
+```{r processos_criticos}
+# Identificar processos críticos
+criticos <- df %>%
+  filter(tempo_tramitacao > 180) %>%
+  select(numero_processo, objeto, setor, data_cadastro, tempo_tramitacao, status) %>%
+  arrange(desc(tempo_tramitacao))
+
+if (nrow(criticos) > 0) {
+  kable(criticos,
+        col.names = c("Nº Processo", "Objeto", "Setor", "Data Cadastro", "Dias", "Status"),
+        align = c("l", "l", "l", "c", "c", "l")) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"),
+                  full_width = TRUE,
+                  font_size = 10) %>%
+    row_spec(0, bold = TRUE, background = "#e74c3c", color = "white") %>%
+    column_spec(5, bold = TRUE, color = "red")
+} else {
+  cat("**Não há processos críticos com tempo de tramitação superior a 180 dias.**")
+}
+```
+
+---
+
+# Detalhamento Completo dos Processos
+
+```{r tabela_completa}
+# Tabela detalhada de todos os processos
+df_display <- df %>%
+  select(numero_processo, objeto, tipo_processo, setor, data_cadastro, 
+         ultima_movimentacao, tempo_tramitacao, status, responsavel) %>%
+  arrange(desc(ultima_movimentacao))
+
+kable(df_display,
+      col.names = c("Nº Processo", "Objeto", "Tipo", "Setor", "Data Cadastro", 
+                    "Última Mov.", "Dias", "Status", "Responsável"),
+      align = c("l", "l", "c", "l", "c", "c", "c", "l", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = TRUE,
+                font_size = 9,
+                fixed_thead = TRUE) %>%
+  row_spec(0, bold = TRUE, background = "#34495e", color = "white") %>%
+  scroll_box(height = "500px")
+```
+
+---
+
+# Análise por Responsável
+
+```{r analise_responsavel}
+# Análise por responsável
+responsavel_summary <- df %>%
+  group_by(responsavel) %>%
+  summarise(
+    Quantidade = n(),
+    `%` = round(n() / nrow(df) * 100, 1),
+    `Tempo Médio (dias)` = round(mean(tempo_tramitacao, na.rm = TRUE), 0)
+  ) %>%
+  arrange(desc(Quantidade))
+
+kable(responsavel_summary,
+      col.names = c("Responsável", "Quantidade", "%", "Tempo Médio (dias)"),
+      align = c("l", "c", "c", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, background = "#1abc9c", color = "white")
+```
+
+---
+
+# Conclusões e Recomendações
+
+## Principais Achados
+
+1. **Volume de Processos**: O total de `r total_processos` processos está sendo acompanhado, com `r processos_ativos` ainda em andamento.
+
+2. **Tempo de Tramitação**: O tempo médio de tramitação é de **`r tempo_medio` dias**, indicando `r if(tempo_medio > 120) "necessidade de atenção" else "fluxo adequado"` nos processos administrativos.
+
+3. **Processos Críticos**: Existem **`r processos_criticos` processos** com tempo superior a 180 dias, que requerem atenção prioritária.
+
+4. **Concentração**: Os processos estão concentrados em `r if(nrow(tipo_summary) == 1) "um único tipo" else paste(nrow(tipo_summary), "tipos diferentes")` de procedimentos.
+
+## Recomendações
+
+- **Priorizar** os processos com tempo de tramitação superior a 180 dias
+- **Monitorar** regularmente os processos em status "Aguardando desfecho da licitação"
+- **Avaliar** a necessidade de redistribuição de processos entre responsáveis
+- **Implementar** alertas automáticos para processos que ultrapassem prazos críticos
+
+---
+
+**Documento gerado automaticamente em `r format(Sys.time(), "%d/%m/%Y às %H:%M")`**
+
+*Instituto Federal do Maranhão - IFMA*  
+*Coordenação de Licitações e Contratos - CLC/PROAD*
